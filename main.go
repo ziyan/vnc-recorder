@@ -49,8 +49,8 @@ func main() {
 			},
 			&cli.StringFlag{
 				Name:    "password",
-				Value:   "secret",
-				Usage:   "Password to connect to the VNC host",
+				Value:   "",
+				Usage:   "Password to connect to the VNC host (empty uses None auth)",
 				EnvVars: []string{"VR_VNC_PASSWORD"},
 			},
 			&cli.IntFlag{
