@@ -139,16 +139,14 @@ func recorder(c *cli.Context) error {
 		ServerMessageCh:  cchServer,
 		// serverCutText (defined above) overrides the buggy default handler.
 		Messages: append(append([]vnc.ServerMessage{}, vnc.DefaultServerMessages...), &serverCutText{}),
+		// Only Raw and CopyRect read a fixed byte count per rect, so they can't
+		// desync the stream. vnc2video's compressed decoders (Tight/ZRLE/Hextile)
+		// are an incomplete port and corrupt the stream on some content, crashing
+		// with a bogus "unsupported encoding". The server paints the cursor into
+		// normal updates when no cursor pseudo-encoding is advertised.
 		Encodings: []vnc.Encoding{
 			&vnc.RawEncoding{},
-			&vnc.TightEncoding{},
-			&vnc.HextileEncoding{},
-			&vnc.ZRLEEncoding{},
 			&vnc.CopyRectEncoding{},
-			&vnc.CursorPseudoEncoding{},
-			&vnc.CursorPosPseudoEncoding{},
-			&vnc.ZLibEncoding{},
-			&vnc.RREEncoding{},
 		},
 		ErrorCh: errorCh,
 	}
@@ -186,14 +184,8 @@ func recorder(c *cli.Context) error {
 	}
 
 	vncConnection.SetEncodings([]vnc.EncodingType{
-		vnc.EncCursorPseudo,
-		vnc.EncPointerPosPseudo,
 		vnc.EncCopyRect,
-		vnc.EncTight,
-		vnc.EncZRLE,
-		vnc.EncHextile,
-		vnc.EncZlib,
-		vnc.EncRRE,
+		vnc.EncRaw,
 	})
 
 	go func() {
