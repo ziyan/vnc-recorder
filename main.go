@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	vnc "github.com/amitbet/vnc2video"
 	"github.com/sirupsen/logrus"
@@ -15,6 +16,30 @@ import (
 	"syscall"
 	"time"
 )
+
+// serverCutText replaces vnc2video's ServerCutText handler, which reads only
+// 1 byte of padding after the message type instead of the 3 the RFB protocol
+// requires. The 2-byte under-read desyncs the stream and corrupts every
+// subsequent framebuffer update. Embeds the original to inherit Type/Write/etc.
+type serverCutText struct {
+	vnc.ServerCutText
+}
+
+func (*serverCutText) Read(c vnc.Conn) (vnc.ServerMessage, error) {
+	var pad [3]byte
+	if err := binary.Read(c, binary.BigEndian, &pad); err != nil {
+		return nil, err
+	}
+	msg := vnc.ServerCutText{}
+	if err := binary.Read(c, binary.BigEndian, &msg.Length); err != nil {
+		return nil, err
+	}
+	msg.Text = make([]byte, msg.Length)
+	if err := binary.Read(c, binary.BigEndian, &msg.Text); err != nil {
+		return nil, err
+	}
+	return &msg, nil
+}
 
 func main() {
 	app := &cli.App{
@@ -112,7 +137,8 @@ func recorder(c *cli.Context) error {
 		PixelFormat:      vnc.PixelFormat32bit,
 		ClientMessageCh:  cchClient,
 		ServerMessageCh:  cchServer,
-		Messages:         vnc.DefaultServerMessages,
+		// serverCutText (defined above) overrides the buggy default handler.
+		Messages: append(append([]vnc.ServerMessage{}, vnc.DefaultServerMessages...), &serverCutText{}),
 		Encodings: []vnc.Encoding{
 			&vnc.RawEncoding{},
 			&vnc.TightEncoding{},
@@ -200,7 +226,11 @@ func recorder(c *cli.Context) error {
 	for {
 		select {
 		case err := <-errorCh:
-			panic(err)
+			logrus.WithError(err).Error("VNC stream error, stopping recording.")
+			vcodec.Close()
+			// give some time to write the file
+			time.Sleep(time.Second * 1)
+			return err
 		case msg := <-cchClient:
 			logrus.WithFields(logrus.Fields{
 				"messageType": msg.Type(),
